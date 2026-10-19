@@ -109,11 +109,19 @@ second copy does nothing rather than opening a second panel.
 **Voice is lazy.** The voice library is only downloaded when someone opens the
 Voice tab. A visitor who only chats downloads 5.4 KB.
 
-**The domain matters.** The endpoints only accept requests from
-`onlinemarketinghelp.co.uk` and `www.onlinemarketinghelp.co.uk`. This is
-deliberate: it stops anyone else embedding the widget and spending our budget.
-It also means **it will not work from a staging domain or from a local copy**
-until that domain is added to the allow-list. Ask Rafiul to add it.
+**The domain matters.** The endpoints only accept requests from an allow-list:
+the live site and `www`, the preview at `omh-redesign.vercel.app`, and
+`localhost` on ports 3000, 3001 and 3002 for development. This is deliberate:
+it stops anyone else embedding the widget and spending our budget.
+
+It also means **it will not work from any other domain** until that domain is
+added. The symptom is specific and worth recognising: the pill appears, the
+panel opens, and every message comes back "Sorry, I cannot reach our system
+right now". That is a blocked origin, not a broken agent. Send the URL and it
+takes a minute to add.
+
+Next takes port 3000 if it is free and walks up when it is not, which is why
+3001 and 3002 are on the list too.
 
 **The conversation is kept.** Chat and voice share one thread, so a caller who
 typed first does not have to repeat themselves, and what the voice agent says is
