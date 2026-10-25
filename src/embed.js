@@ -137,10 +137,22 @@ button,input{font:inherit;color:inherit;margin:0}
 
 .fab{position:fixed;${SIDE}:20px;bottom:20px;z-index:2147483000;display:inline-flex;
   align-items:center;gap:9px;padding:13px 20px;border:none;border-radius:999px;cursor:pointer;
-  background:var(--color-ink,#101828);color:var(--color-oninverse,#fff);
+  /* --color-inverse, not --color-ink. The host page's tokens are inherited
+     through the shadow boundary, and in the site's dark theme --color-ink
+     flips to a near-white while --color-oninverse stays near-white too, so a
+     pill painted with that pair went light on light and disappeared.
+     inverse/oninverse is defined as a contrasting pair in both themes. */
+  background:var(--color-inverse,#101828);color:var(--color-oninverse,#fff);
   font:600 15px/1 var(--font-body,"Source Sans 3",system-ui,-apple-system,sans-serif);
-  box-shadow:0 10px 30px -10px rgba(16,24,40,.45)}
-.fab:hover{transform:translateY(-1px)}
+  /* An accent ring, because the pill is near-black and so is the site in its
+     dark theme: the text was readable but the shape of the button was not,
+     which is the same as not seeing it. The ring carries its edge on either
+     background. */
+  box-shadow:0 0 0 1.5px rgb(var(--accent-rgb,215 154 55) / .75),
+             0 10px 30px -10px rgba(16,24,40,.45)}
+.fab:hover{transform:translateY(-1px);
+  box-shadow:0 0 0 2px rgb(var(--accent-rgb,215 154 55) / .95),
+             0 14px 34px -12px rgba(16,24,40,.5)}
 
 .panel{position:fixed;${SIDE}:20px;bottom:20px;z-index:2147483000;
   width:min(408px,calc(100vw - 32px));height:min(660px,calc(100vh - 40px));
@@ -181,7 +193,7 @@ button,input{font:inherit;color:inherit;margin:0}
 @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .bub.assistant{align-self:flex-start;background:var(--color-warm,#f7f6f2);
   border:1px solid var(--color-line,#d9ddd8);border-bottom-left-radius:5px}
-.bub.user{align-self:flex-end;background:var(--color-ink,#101828);
+.bub.user{align-self:flex-end;background:var(--color-inverse,#101828);
   color:var(--color-oninverse,#fff);border-bottom-right-radius:5px}
 .typing{display:inline-flex;gap:4px;align-items:center;padding:14px;align-self:flex-start;
   background:var(--color-warm,#f7f6f2);border:1px solid var(--color-line,#d9ddd8);
@@ -224,11 +236,15 @@ button,input{font:inherit;color:inherit;margin:0}
 .voice p{margin:0;font-size:14px;color:var(--color-muted,#667085);max-width:34ch}
 .vnote{margin-top:10px!important;font-size:13px!important}
 .vnote.bad{color:var(--color-error,#b42318)!important}
-.call{margin-top:22px;padding:14px 34px;border-radius:999px;border:none;cursor:pointer;
-  background:var(--color-ink,#101828);color:var(--color-oninverse,#fff);
+.call{margin-top:22px;padding:14px 34px;border-radius:999px;cursor:pointer;
+  border:1.5px solid rgb(var(--accent-rgb,215 154 55) / .75);
+  background:var(--color-inverse,#101828);color:var(--color-oninverse,#fff);
   font-weight:600;font-size:15px;line-height:1}
 .call.end{background:var(--color-error,#b42318)}
-.call:disabled{opacity:.5;cursor:not-allowed}
+/* Still has to be visible while it is unavailable: at .5 opacity on a dark
+   page the button vanished and the panel looked broken rather than busy. */
+.call:disabled{cursor:not-allowed;opacity:.72;
+  border-color:rgb(var(--accent-rgb,215 154 55) / .4)}
 .vfoot{margin-top:18px!important;font-size:13px!important}
 .vfoot a{color:var(--color-amber-deep,#8f5a0e)}
 
@@ -471,11 +487,23 @@ button,input{font:inherit;color:inherit;margin:0}
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ session_id: sess, page_url: location.href }),
         }).then(function (r) {
-          if (!r.ok) throw new Error("token");
-          return r.json();
-        }).then(function (d) {
-          if (!d.access_token) throw new Error("token");
-          return { Client: Client, token: d.access_token };
+          /* text(), not json(): when the token workflow fails upstream it
+             answers 200 with an empty body, and r.json() then threw a parse
+             error that landed in the catch below as "the microphone was
+             blocked", which was never true and sent people to check their
+             browser settings over a billing problem. */
+          return r.text().then(function (body) {
+            var d = null;
+            try { d = body ? JSON.parse(body) : null; } catch (e) { /* not json */ }
+            if (!r.ok || !d || !d.access_token) {
+              if (window.console && console.warn) {
+                console.warn("[OMH assistant] voice token: HTTP " + r.status + " " +
+                  (body ? body.slice(0, 300) : "(empty body)"));
+              }
+              throw new Error("token");
+            }
+            return { Client: Client, token: d.access_token };
+          });
         });
       })
       .then(function (o) {
@@ -525,11 +553,21 @@ button,input{font:inherit;color:inherit;margin:0}
       })
       .catch(function (e) {
         state.voice = "error";
-        state.note =
-          e && e.message === "token"
-            ? "Could not start the call. Please ring " + PHONE + "."
-            : "Your browser blocked the microphone, or the call could not start. " +
-              "Please ring " + PHONE + ".";
+        /* Three different failures, three different things to do about them.
+           Lumping them together told most people to go and check a microphone
+           permission that was never the problem. The reason we need is in the
+           console; the visitor gets the one that helps them. */
+        var mic = e && (e.name === "NotAllowedError" || e.name === "NotFoundError" ||
+                        e.name === "SecurityError");
+        state.note = mic
+          ? "Your browser blocked the microphone. Allow it for this site and try " +
+            "again, or ring " + PHONE + "."
+          : e && e.message === "sdk"
+            ? "The voice line could not load. Please use the Chat tab, or ring " +
+              PHONE + "."
+            : "The voice line is not available at the moment. Chat still works, " +
+              "or you can ring " + PHONE + ".";
+        if (window.console && console.warn) console.warn("[OMH assistant] voice:", e);
         render();
       });
   }
